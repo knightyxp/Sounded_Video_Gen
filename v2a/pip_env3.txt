@@ -103,7 +103,6 @@ noisereduce==2.0.1
 numba==0.58.1
 numpy==1.26.4
 oauthlib==3.2.2
-omegaconf==2.0.6
 open-clip-torch==2.24.0
 opencv-contrib-python==4.8.1.78
 opencv-python==4.8.1.78
@@ -141,8 +140,6 @@ pyppmd==1.1.0
 pyproject-toml==0.0.10
 python-dateutil==2.9.0.post0
 python-editor==1.0.4
-pytorch-ignite==0.4.13
-pytorch-lightning==1.2.10
 pytz==2024.1
 PyYAML==6.0.1
 pyzstd==0.15.9
@@ -179,13 +176,7 @@ tiktoken==0.5.1
 timm==0.9.5
 toml==0.10.2
 tomli==2.0.1
---extra-index-url https://download.pytorch.org/whl/cu118
-torch==2.2.0 
---extra-index-url https://download.pytorch.org/whl/cu118
-torchaudio==2.2.0 
 torchmetrics==0.2.0 
---extra-index-url https://download.pytorch.org/whl/cu118
-torchvision==0.17.0 
 tornado==6.4.1
 tqdm==4.65.2
 trampoline==0.1.2

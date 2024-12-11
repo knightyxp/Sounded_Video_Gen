@@ -4,5 +4,6 @@ v2a/output
 v2a/qwen_ckpt
 v2a/demo/key_frames
 v2a/audioldm/output
+v2a/*.mp4
 *__pycache__*
 

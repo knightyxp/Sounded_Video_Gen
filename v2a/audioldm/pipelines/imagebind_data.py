@@ -454,83 +454,83 @@ def clip_video(video_tensor, t1, t2, video_fps):
     return {'video': video_tensor[:, start:end, ...]}
 
 
-# import random 
+import random 
 
-# def my_uniform_sampler(video_tensor, num_samples):
-#     # video_tensor: [3, 16, 64, 64]
-#     video_length = video_tensor.shape[1] # 16
-#     # uniform sampling
-#     indices = sorted(random.sample(range(video_length), num_samples)) 
-#     return video_tensor[:, indices, ...]
+def my_uniform_sampler(video_tensor, num_samples):
+    # video_tensor: [3, 16, 64, 64]
+    video_length = video_tensor.shape[1] # 16
+    # uniform sampling
+    indices = sorted(random.sample(range(video_length), num_samples)) 
+    return video_tensor[:, indices, ...]
 
 
 # # [1, 3, 4, 224, 224]
-# def load_and_transform_video_data_from_tensor_real(
-#     video_tensor, # [1, 16, 64, 64, 3]
-#     device,
-#     # video_duration, # this is the video length in seconds
-#     clip_duration=2,
-#     clips_per_video=5,
-#     sample_rate=16000,
-#     n_samples_per_clip=2,
-#     video_fps = 10,
-# ):
-#     video_outputs = []
-#     # requires CTHW 
-#     video_transform = transforms.Compose(
-#         [
-#             pv_transforms.ShortSideScale(224),
-#             NormalizeVideo(
-#                 mean=(0.48145466, 0.4578275, 0.40821073),
-#                 std=(0.26862954, 0.26130258, 0.27577711),
-#             ),
-#         ]
-#     )
-#     # video_tensor = video_tensor.permute(0, 4, 1, 2, 3)
+def load_and_transform_video_data_from_tensor_real(
+    video_tensor, # [1, 16, 64, 64, 3]
+    device,
+    # video_duration, # this is the video length in seconds
+    clip_duration=2,
+    clips_per_video=5,
+    sample_rate=16000,
+    n_samples_per_clip=2,
+    video_fps = 10,
+):
+    video_outputs = []
+    # requires CTHW 
+    video_transform = transforms.Compose(
+        [
+            pv_transforms.ShortSideScale(224),
+            NormalizeVideo(
+                mean=(0.48145466, 0.4578275, 0.40821073),
+                std=(0.26862954, 0.26130258, 0.27577711),
+            ),
+        ]
+    )
+    # video_tensor = video_tensor.permute(0, 4, 1, 2, 3)
 
-#     if len(video_tensor.shape) == 5:
-#         video_length = video_tensor.shape[1] 
-#     elif len(video_tensor.shape) == 4:
-#         video_length = video_tensor.shape[0]
-#     else:
-#         raise ValueError('video tensor shape is not correct')
-#     video_duration = video_length / video_fps # 1.6s 
+    if len(video_tensor.shape) == 5:
+        video_length = video_tensor.shape[1] 
+    elif len(video_tensor.shape) == 4:
+        video_length = video_tensor.shape[0]
+    else:
+        raise ValueError('video tensor shape is not correct')
+    video_duration = video_length / video_fps # 1.6s 
 
-#     clip_sampler = ConstantClipsPerVideoSampler(
-#         clip_duration=clip_duration, clips_per_video=clips_per_video
-#     )
-#     frame_sampler = pv_transforms.UniformTemporalSubsample(num_samples=n_samples_per_clip)
+    clip_sampler = ConstantClipsPerVideoSampler(
+        clip_duration=clip_duration, clips_per_video=clips_per_video
+    )
+    frame_sampler = pv_transforms.UniformTemporalSubsample(num_samples=n_samples_per_clip)
 
-#     resize = transforms.Resize((224, 224))
+    resize = transforms.Resize((224, 224))
 
-#     all_clips_timepoints = get_clip_timepoints(clip_sampler, video_duration) 
+    all_clips_timepoints = get_clip_timepoints(clip_sampler, video_duration) 
 
-#     all_video = []
-#     for vd_tensor in video_tensor:
-#         for i_time, clip_timepoints in enumerate(all_clips_timepoints):
-#             # Read the clip, get frames
-#             # clip = video.get_clip(clip_timepoints[0], clip_timepoints[1])
-#             clip = clip_video(vd_tensor, clip_timepoints[0], clip_timepoints[1], video_fps) # give starting and ending point, return a clip
-#             # print('clip: ', clip.keys()) # video, audio, start_time, end_time 
-#             # print('clip video shape: ', clip['video'].shape, type(clip['video'])) # [3, 17, 64, 64], torch.Tensor
-#             if clip is None:
-#                 raise ValueError("No clip found")
-#             # video_clip = frame_sampler(clip["video"])
-#             video_clip = my_uniform_sampler(clip["video"], num_samples=n_samples_per_clip)
+    all_video = []
+    for vd_tensor in video_tensor:
+        for i_time, clip_timepoints in enumerate(all_clips_timepoints):
+            # Read the clip, get frames
+            # clip = video.get_clip(clip_timepoints[0], clip_timepoints[1])
+            clip = clip_video(vd_tensor, clip_timepoints[0], clip_timepoints[1], video_fps) # give starting and ending point, return a clip
+            # print('clip: ', clip.keys()) # video, audio, start_time, end_time 
+            # print('clip video shape: ', clip['video'].shape, type(clip['video'])) # [3, 17, 64, 64], torch.Tensor
+            if clip is None:
+                raise ValueError("No clip found")
+            # video_clip = frame_sampler(clip["video"])
+            video_clip = my_uniform_sampler(clip["video"], num_samples=n_samples_per_clip)
 
-#             video_clip = video_clip / 255.0  # since this is float, need 0-1
+            video_clip = video_clip / 255.0  # since this is float, need 0-1
 
-#             # print()
-#             all_video.append(video_clip)
+            # print()
+            all_video.append(video_clip)
 
-#     all_video_save = all_video.copy()
-#     all_video = [video_transform(clip) for clip in all_video]
-#     # all_video = SpatialCrop(224, num_crops=3)(all_video)
-#     all_video = [resize(vid) for vid in all_video]
-#     all_video_save = [resize(vid) for vid in all_video_save]
+    all_video_save = all_video.copy()
+    all_video = [video_transform(clip) for clip in all_video]
+    # all_video = SpatialCrop(224, num_crops=3)(all_video)
+    all_video = [resize(vid) for vid in all_video]
+    all_video_save = [resize(vid) for vid in all_video_save]
 
 
-#     all_video = torch.stack(all_video, dim=0)
-#     video_outputs.append(all_video)
+    all_video = torch.stack(all_video, dim=0)
+    video_outputs.append(all_video)
 
-#     return torch.stack(video_outputs, dim=0).to(device)
+    return torch.stack(video_outputs, dim=0).to(device)

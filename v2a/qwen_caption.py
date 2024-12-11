@@ -36,7 +36,6 @@ model = AutoModelForCausalLM.from_pretrained("qwen_ckpt/Qwen-VL-Chat", device_ma
 
 # Get the list of image files in the specified directory
 files = [f for f in os.listdir(args.imgdir) if os.path.splitext(f)[1].lower() in image_types]
-
 # Initialize the progress bar
 pbar = tqdm(total=len(files), desc="Captioning", dynamic_ncols=True, position=0, leave=True)
 start_time = time.time()
