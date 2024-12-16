@@ -5,5 +5,7 @@ v2a/qwen_ckpt
 v2a/demo/key_frames
 v2a/audioldm/output
 v2a/*.mp4
+joint_va/ckpt/
+joint_va/samples/
+*.zip
 *__pycache__*
-

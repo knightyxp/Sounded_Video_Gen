@@ -39,14 +39,14 @@ weight_dtype = torch.float16
 
 # repo_id = "cvssp/audioldm-m-full"
 local_model_path = 'ckpt/audioldm-m-full'
-audio_unet = UNet2DConditionModel.from_pretrained(local_model_path, subfolder='unet').to('cuda',dtype=weight_dtype)
+audio_unet = UNet2DConditionModel.from_pretrained(local_model_path, subfolder='unet').to('cuda:0',dtype=weight_dtype)
 
 ##########load video model#############
 
-video_transformer = CogVideoXTransformer3DModel.from_pretrained('./ckpt/CogVideoX-2b', subfolder='transformer').to('cuda',dtype=weight_dtype)
-video_vae = AutoencoderKLCogVideoX.from_pretrained('./ckpt/CogVideoX-5b-I2V', subfolder='vae').to('cuda',dtype=weight_dtype)
+video_transformer = CogVideoXTransformer3DModel.from_pretrained('./ckpt/CogVideoX-2b', subfolder='transformer').to('cuda:1',dtype=weight_dtype)
+video_vae = AutoencoderKLCogVideoX.from_pretrained('./ckpt/CogVideoX-5b-I2V', subfolder='vae').to('cuda:1',dtype=weight_dtype)
 video_text_tokenizer = T5Tokenizer.from_pretrained('./ckpt/CogVideoX-5b-I2V', subfolder='tokenizer')
-video_text_encoder = T5EncoderModel.from_pretrained('./ckpt/CogVideoX-5b-I2V', subfolder='text_encoder').to('cuda',dtype=weight_dtype)
+video_text_encoder = T5EncoderModel.from_pretrained('./ckpt/CogVideoX-5b-I2V', subfolder='text_encoder').to('cuda:1',dtype=weight_dtype)
 video_scheduler = CogVideoXDDIMScheduler.from_pretrained('./ckpt/CogVideoX-5b-I2V', subfolder='scheduler')
 
 
@@ -57,19 +57,19 @@ pipe = Audio_Video_LDMPipeline.from_pretrained(local_model_path,
         video_vae=video_vae, video_text_encoder=video_text_encoder,
         video_text_tokenizer=video_text_tokenizer,transformer=video_transformer,
         video_scheduler=video_scheduler, torch_dtype=torch.float16)
-pipe = pipe.to("cuda:0")
+pipe = pipe.to("cuda")
 
 
 
-# os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-# os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
-# # torch.use_deterministic_algorithms(True)
-# torch.use_deterministic_algorithms(True, warn_only=True)
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
+# torch.use_deterministic_algorithms(True)
+torch.use_deterministic_algorithms(True, warn_only=True)
 
-# # Enable CUDNN deterministic mode
-# torch.backends.cudnn.deterministic = True
-# torch.backends.cudnn.benchmark = False
-# torch.backends.cuda.matmul.allow_tf32 = False
+# Enable CUDNN deterministic mode
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+torch.backends.cuda.matmul.allow_tf32 = False
 
 out_dir = args.out_root
 
@@ -127,13 +127,14 @@ for vp in video_name_and_prompt:
         except:
             continue
         inf_steps = [30]
-        lrs = [0.1]
+        lrs = [0]
         num_optimization_steps = [1]
         clip_duration = 1
-        clips_per_video = vp['audio_length']
+        clips_per_video = 1
+        #vp['audio_length']
         cur_seed = vp['seed']
         optimization_starting_point = 0.2
-        bind_params = [{'clip_duration': 1, 'clips_per_video': vp['audio_length']}]
+        bind_params = [{'clip_duration': 1, 'clips_per_video': 1}]
 
         cur_out_dir = f"{out_dir}_inf_steps{inf_steps[0]}_lr{lrs[0]}/{video_folder_name}"
         os.makedirs(cur_out_dir, exist_ok=True)
@@ -142,13 +143,6 @@ for vp in video_name_and_prompt:
         generator = torch.Generator(device='cuda')
 
         generator.manual_seed(cur_seed)
-
-        if args.init_latents:
-            latents = pipe.only_prepare_latents(
-                prompt, audio_length_in_s=vp['audio_length'], generator=generator
-            )
-        else:
-            latents = None 
 
 
         ngpu=torch.cuda.device_count()
@@ -171,7 +165,7 @@ for vp in video_name_and_prompt:
                 for opt_step in num_optimization_steps:
                     for lr in lrs:
                         #pipe.enable_model_cpu_offload()
-                        video, audio, _ = pipe.bind_forward_triple_loss(prompt,latents=latents, num_inference_steps=step, audio_length_in_s=vp['audio_length'], generator=generator, 
+                        video, audio, _ = pipe.bind_forward_triple_loss(prompt,latents=None, num_inference_steps=step, audio_length_in_s=vp['audio_length'], generator=generator, 
                                         video_paths=video_paths, learning_rate=lr, clip_duration=bp['clip_duration'], 
                                         clips_per_video=bp['clips_per_video'], num_optimization_steps=opt_step, return_dict=False)
 

@@ -1,0 +1,10 @@
+*pyc
+results
+*.egg-info
+*.ckpt
+*.safetensors
+*.gz
+*.pth
+local
+.vscode
+data
