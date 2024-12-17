@@ -63,7 +63,7 @@ inf_steps = 50
 lr = 0
 num_optimization_steps = 1
 audio_length = 2
-clip_duration = 1
+clip_duration = 2
 clips_per_video = 1
 #vp['audio_length']
 cur_seed = 45
@@ -78,7 +78,7 @@ generator = torch.Generator(device='cuda')
 generator.manual_seed(cur_seed)
 
 # prompt = "A man is playing an accordion"
-prompt = 'photo of coastline, rocks, storm weather, wind, waves, lightning, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3'
+prompt = prompt = "A panda, dressed in a small, red jacket and a tiny hat, sits on a wooden stool in a serene bamboo forest. The panda's fluffy paws strum a miniature acoustic guitar, producing soft, melodic tunes. Nearby, a few other pandas gather, watching curiously and some clapping in rhythm. Sunlight filters through the tall bamboo, casting a gentle glow on the scene. The panda's face is expressive, showing concentration and joy as it plays. The background includes a small, flowing stream and vibrant green foliage, enhancing the peaceful and magical atmosphere of this unique musical performance."
 negative_prompt = 'blur, haze, deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime, mutated hands and fingers, deformed, distorted, disfigured, poorly drawn, bad anatomy, wrong anatomy, extra limb, missing limb, floating limbs, disconnected limbs, mutation, mutated, ugly, disgusting, amputation'
 ngpu=torch.cuda.device_count()
 print(f"num_gpus={ngpu}")

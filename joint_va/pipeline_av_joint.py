@@ -942,9 +942,9 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
         )
 
         #prepare video latents
-        height = 224
-        width = 224
-        num_frames = 4
+        height = 480
+        width = 720
+        num_frames = 17
         latent_channels = self.transformer.config.in_channels
         video_latents = self.prepare_video_latents(
             batch_size * num_videos_per_prompt,
@@ -1066,8 +1066,6 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
                         if i > num_warmup_steps_bind:
                             audio_latents_temp.requires_grad = True 
 
-
-
                         #================compute audio=================#
                         # 1. compute x0 
                         audio_x0 = 1/(self.scheduler.alphas_cumprod[t] ** 0.5) * (audio_latents_temp - (1-self.scheduler.alphas_cumprod[t])**0.5 * audio_noise_pred)
@@ -1091,14 +1089,14 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
                         #================compute audio=================#
 
                         #================compute video=================#
-
-                        # 1. compute video x0 
-                        video_x0 = 1/(self.video_scheduler.alphas_cumprod[t] ** 0.5) * (video_latents_temp - (1-self.video_scheduler.alphas_cumprod[t])**0.5 * video_noise_pred) 
-                        # 2. decode video x0 with video vae decoder 
-                        #self.video_vae.disable_gradient_checkpointing()
-                        x0_video = self.decode_video_latents(video_x0).to(dtype=torch.float32, device=bind_device)
-                        # print('x0_video',x0_video.shape)
-
+                        with torch.no_grad():
+                            # 1. compute video x0 
+                            video_x0 = 1/(self.video_scheduler.alphas_cumprod[t] ** 0.5) * (video_latents_temp - (1-self.video_scheduler.alphas_cumprod[t])**0.5 * video_noise_pred) 
+                            # 2. decode video x0 with video vae decoder 
+                            #self.video_vae.disable_gradient_checkpointing()
+                            x0_video = self.decode_video_latents(video_x0).to(dtype=torch.float32, device=bind_device)
+                            # print('x0_video',x0_video.shape)
+                            x0_video = (x0_video  / 2 + 0.5).clamp(0, 1)
                         # # 3. x0_video to frames to export 
                         #video = self.video_processor.postprocess_video(video=video, output_type=output_type)
                         # export_to_video(video,f'output_{t}.mp4',fps=10)
@@ -1160,6 +1158,9 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
                     if callback is not None and i % callback_steps == 0:
                         callback(i, t, video_latents)
 
+        del video_latents_temp,audio_latents_temp
+        # torch.cuda.set_device(1)
+        torch.cuda.empty_cache()
         audio_latents.requires_grad = False
         video_latents.requires_grad = False
 
