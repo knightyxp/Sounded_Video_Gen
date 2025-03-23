@@ -23,7 +23,7 @@ from imagebind.imagebind.models.multimodal_preprocessors import SimpleTokenizer
 
 DEFAULT_AUDIO_FRAME_SHIFT_MS = 10  # in milliseconds
 
-BPE_PATH = "/home/xianyang/Data/code/Seeing-and-Hearing/v2a/imagebind/bpe/bpe_simple_vocab_16e6.txt.gz"
+BPE_PATH = "./imagebind/bpe/bpe_simple_vocab_16e6.txt.gz"
 
 
 def waveform2melspec(waveform, sample_rate, num_mel_bins, target_length):

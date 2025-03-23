@@ -1,0 +1,1 @@
+python av-align_single.py --input_dir /home/xianyang/Data/code/Seeing-and-Hearing/joint_va/samples/panda_guitar/

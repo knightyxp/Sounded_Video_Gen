@@ -88,7 +88,7 @@ samples = []
 
 #============ define and load imagebind model =================#
 bind_model = imagebind_model.imagebind_huge(pretrained=False)
-state_dict = torch.load("/home/xianyang/Data/code/Seeing-and-Hearing/v2a/imagebind/.checkpoints/imagebind_huge.pth", map_location=bind_device)
+state_dict = torch.load("imagebind/.checkpoints/imagebind_huge.pth", map_location=bind_device)
 bind_model.load_state_dict(state_dict)
 bind_model.eval()
 bind_model.to(bind_device)

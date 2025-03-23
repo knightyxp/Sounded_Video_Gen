@@ -62,14 +62,14 @@ out_dir = args.out_root
 inf_steps = 50
 lr = 0
 num_optimization_steps = 1
-audio_length = 2
+audio_length = 5
 clip_duration = 2
 clips_per_video = 1
 #vp['audio_length']
 cur_seed = 45
 optimization_starting_point = 0.2
 
-cur_out_dir = f"samples/debug"
+cur_out_dir = f"samples/man_shoot_rifle_wo_rhythmically_t2v"
 os.makedirs(cur_out_dir, exist_ok=True)
 
 set_seed(cur_seed)
@@ -78,7 +78,7 @@ generator = torch.Generator(device='cuda')
 generator.manual_seed(cur_seed)
 
 # prompt = "A man is playing an accordion"
-prompt = prompt = "A panda, dressed in a small, red jacket and a tiny hat, sits on a wooden stool in a serene bamboo forest. The panda's fluffy paws strum a miniature acoustic guitar, producing soft, melodic tunes. Nearby, a few other pandas gather, watching curiously and some clapping in rhythm. Sunlight filters through the tall bamboo, casting a gentle glow on the scene. The panda's face is expressive, showing concentration and joy as it plays. The background includes a small, flowing stream and vibrant green foliage, enhancing the peaceful and magical atmosphere of this unique musical performance."
+prompt = "A white man shoots a black rifle. He wears a black cap, a green T-shirt, and beige pants."
 negative_prompt = 'blur, haze, deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime, mutated hands and fingers, deformed, distorted, disfigured, poorly drawn, bad anatomy, wrong anatomy, extra limb, missing limb, floating limbs, disconnected limbs, mutation, mutated, ugly, disgusting, amputation'
 ngpu=torch.cuda.device_count()
 print(f"num_gpus={ngpu}")
@@ -96,15 +96,14 @@ video, audio = pipe.bind_forward_triple_loss(prompt,latents=None, num_inference_
                 learning_rate=lr, clip_duration=clip_duration, 
                 clips_per_video=clips_per_video, num_optimization_steps= num_optimization_steps, return_dict=False)
 
-export_to_video(video,f"{cur_out_dir}/ouput_video.mp4", fps=10)
+export_to_video(video,f"{cur_out_dir}/output_video.mp4", fps=10)
 sf.write(f"{cur_out_dir}/output_audio.wav", audio, samplerate=16000)
 
 audio = AudioFileClip(f"{cur_out_dir}/output_audio.wav")
-video = VideoFileClip(f"{cur_out_dir}/ouput_video.mp4")
+video = VideoFileClip(f"{cur_out_dir}/output_video.mp4")
 video = video.set_audio(audio)
 video.write_videofile(
     f"{cur_out_dir}/ouput_video_joint.mp4",
     codec="libx264",
-    audio_codec="aac"
 )
 

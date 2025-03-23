@@ -228,6 +228,7 @@ if __name__ == "__main__":
 
         file = file[:-4]
         video_path = f'{file}.mp4'
+        print('video_path',video_path)
         video_name = osp.basename(video_path)[:-4]
         audio_path = f'{args.input_wav_dir}/{video_name}.wav'
         if not os.path.exists(audio_path):

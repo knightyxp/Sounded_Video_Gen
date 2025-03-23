@@ -21,7 +21,7 @@ import torch
 import torch.nn.functional as F
 from transformers import ClapTextModelWithProjection, RobertaTokenizer, RobertaTokenizerFast, SpeechT5HifiGan
 from transformers import T5EncoderModel, T5Tokenizer
-
+from diffusers.models.embeddings import get_3d_rotary_pos_embed
 # from diffusers.models import AutoencoderKL, UNet2DConditionModel
 from diffusers.models import AutoencoderKL
 from audioldm.models.unet import UNet2DConditionModel
@@ -36,7 +36,7 @@ from diffusers.models import  AutoencoderKLCogVideoX, CogVideoXTransformer3DMode
 from transformers import T5EncoderModel, T5Tokenizer
 from diffusers.schedulers import CogVideoXDDIMScheduler, CogVideoXDPMScheduler
 from diffusers.video_processor import VideoProcessor
-
+from diffusers.image_processor import PipelineImageInput
 from imagebind_data import load_and_transform_video_data_from_tensor_real,load_and_transform_audio_data_from_waveform, load_and_transform_video_data, load_and_transform_text, load_and_transform_vision_data, waveform2melspec
 from imagebind.imagebind.models import imagebind_model
 from imagebind.imagebind.models.imagebind_model import ModalityType
@@ -50,6 +50,37 @@ from utils.utils import instantiate_from_config
 from omegaconf import OmegaConf
 from diffusers.utils import export_to_video, load_video
 
+
+# Similar to diffusers.pipelines.hunyuandit.pipeline_hunyuandit.get_resize_crop_region_for_grid
+def get_resize_crop_region_for_grid(src, tgt_width, tgt_height):
+    tw = tgt_width
+    th = tgt_height
+    h, w = src
+    r = h / w
+    if r > (th / tw):
+        resize_height = th
+        resize_width = int(round(th / h * w))
+    else:
+        resize_width = tw
+        resize_height = int(round(tw / w * h))
+
+    crop_top = int(round((th - resize_height) / 2.0))
+    crop_left = int(round((tw - resize_width) / 2.0))
+
+    return (crop_top, crop_left), (crop_top + resize_height, crop_left + resize_width)
+
+# Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_img2img.retrieve_latents
+def retrieve_latents(
+    encoder_output: torch.Tensor, generator: Optional[torch.Generator] = None, sample_mode: str = "sample"
+):
+    if hasattr(encoder_output, "latent_dist") and sample_mode == "sample":
+        return encoder_output.latent_dist.sample(generator)
+    elif hasattr(encoder_output, "latent_dist") and sample_mode == "argmax":
+        return encoder_output.latent_dist.mode()
+    elif hasattr(encoder_output, "latents"):
+        return encoder_output.latents
+    else:
+        raise AttributeError("Could not access latents of provided encoder_output")
 
 
 def enable_gradient_checkpointing(model):
@@ -577,7 +608,6 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
 
         video_latents_device = video_latents.device
 
-
         # if video_latents_device != self.video_vae.device:
         #     multi_gpu = True
         # else:
@@ -746,7 +776,17 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
 
 
     def prepare_video_latents(
-        self, batch_size, num_channels_latents, num_frames, height, width, dtype, device, generator, latents=None
+        self,
+        image: torch.Tensor,
+        batch_size: int = 1,
+        num_channels_latents: int = 16,
+        num_frames: int = 13,
+        height: int = 60,
+        width: int = 90,
+        dtype: Optional[torch.dtype] = None,
+        device: Optional[torch.device] = None,
+        generator: Optional[torch.Generator] = None,
+        latents: Optional[torch.Tensor] = None,
     ):
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(
@@ -754,13 +794,36 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
                 f" size of {batch_size}. Make sure the batch size matches the length of the generators."
             )
 
+        num_frames = (num_frames - 1) // self.video_vae_scale_factor_temporal + 1
         shape = (
             batch_size,
-            (num_frames - 1) // self.video_vae_scale_factor_temporal + 1,
+            num_frames,
             num_channels_latents,
             height // self.video_vae_scale_factor_spatial,
             width // self.video_vae_scale_factor_spatial,
         )
+
+        image = image.unsqueeze(2)  # [B, C, F, H, W]
+
+        if isinstance(generator, list):
+            image_latents = [
+                retrieve_latents(self.vidoe_vae.encode(image[i].unsqueeze(0)), generator[i]) for i in range(batch_size)
+            ]
+        else:
+            image_latents = [retrieve_latents(self.video_vae.encode(img.unsqueeze(0)), generator) for img in image]
+
+        image_latents = torch.cat(image_latents, dim=0).to(dtype).permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
+        image_latents = self.video_vae_scaling_factor_image * image_latents
+
+        padding_shape = (
+            batch_size,
+            num_frames - 1,
+            num_channels_latents,
+            height // self.video_vae_scale_factor_spatial,
+            width // self.video_vae_scale_factor_spatial,
+        )
+        latent_padding = torch.zeros(padding_shape, device=device, dtype=dtype)
+        image_latents = torch.cat([image_latents, latent_padding], dim=1)
 
         if latents is None:
             latents = randn_tensor(shape, generator=generator, device=device, dtype=dtype)
@@ -769,13 +832,11 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
 
         # scale the initial noise by the standard deviation required by the scheduler
         latents = latents * self.video_scheduler.init_noise_sigma
-        return latents
-
-
-
+        return latents, image_latents
 
     def bind_forward_triple_loss(
         self,
+        image: PipelineImageInput,
         prompt: Union[str, List[str]] = None,
         audio_length_in_s: Optional[float] = None,
         num_inference_steps: int = 10,
@@ -854,27 +915,9 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
         self.video_vae.enable_tiling()
         self.video_vae.enable_slicing()
 
-
-        # self.video_vae._set_gradient_checkpointing(self.video_vae.encoder, True)
-        # self.video_vae._set_gradient_checkpointing(self.video_vae.decoder, True)
-
-        # self.video_vae.decoder.training = True
-        # print(self.video_vae.encoder.gradient_checkpointing)  # 应返回 True
-        # print(self.video_vae.decoder.gradient_checkpointing)  # 应返回 True
-
-
-        # from accelerate import cpu_offload
-        # vae_device = torch.device(f"cuda:{1}")
-
-        # for cpu_offloaded_model in [self.video_vae]:
-        #     if cpu_offloaded_model is not None:
-        #         cpu_offload(cpu_offloaded_model, vae_device)
-
-
         #set dtype
         latents_dtype = torch.float32
-        # self.text_encoder = self.text_encoder.to("cuda:0",dtype=latents_dtype)
-
+        video_latents_dtype = torch.float16
         # 2. Define call parameters
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1
@@ -889,9 +932,10 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
         # corresponds to doing no classifier free guidance.
         do_classifier_free_guidance = audio_guidance_scale > 1.0
 
+        prompt_audio = 'A man is playing the violin, performing a gentle classical tune with clear and melodic notes, steady rhythm, and a harmonious tone'
         # 3. Encode input prompt
         audio_prompt_embeds = self._encode_prompt(
-            prompt,
+            prompt_audio,
             audio_device,
             num_waveforms_per_prompt,
             do_classifier_free_guidance,
@@ -911,7 +955,7 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
             prompt_embeds=prompt_embeds,
             negative_prompt_embeds=negative_prompt_embeds,
             device=video_device,
-            dtype =latents_dtype,
+            dtype =video_latents_dtype,
         )
 
         if do_classifier_free_guidance:
@@ -944,19 +988,26 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
         #prepare video latents
         height = 480
         width = 720
-        num_frames = 17
-        latent_channels = self.transformer.config.in_channels
-        video_latents = self.prepare_video_latents(
+        num_frames = 49
+
+        
+        image = self.video_processor.preprocess(image, height=height, width=width).to(
+            video_device, dtype=video_latents_dtype
+        )
+
+        latent_channels = self.transformer.config.in_channels // 2
+        video_latents,image_latents = self.prepare_video_latents(
+            image,
             batch_size * num_videos_per_prompt,
             latent_channels,
             num_frames,
             height,
             width,
-            latents_dtype,
+            video_latents_dtype,
             video_device,
             generator=None,
         )
-        print('video_latents',video_latents.device,"    video transformer device",self.transformer.device)
+        print('video_latents',video_latents.device,"    video transformer device",self.transformer.device, self.transformer.dtype, 'vae dtype', self.video_vae.dtype)
         print('video_latents',video_latents.shape,video_latents.dtype)
         # 6. Prepare extra step kwargs
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
@@ -974,7 +1025,7 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
 
         bind_model = imagebind_model.imagebind_huge(pretrained=False)
 
-        state_dict = torch.load("/home/xianyang/Data/code/Seeing-and-Hearing/v2a/imagebind/.checkpoints/imagebind_huge.pth", map_location=bind_device)
+        state_dict = torch.load("imagebind/.checkpoints/imagebind_huge.pth", map_location=bind_device)
 
         bind_model.eval()
         bind_model = bind_model.to(dtype=torch.float32,device=bind_device)
@@ -1025,8 +1076,12 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
                 #===================audio denoising======================#
 
                 #===================video denoising======================#
-                video_latent_model_input = torch.cat([video_latents] * 2) if do_classifier_free_guidance else video_latents
-                video_latent_model_input = self.video_scheduler.scale_model_input(video_latent_model_input, t)
+                video_latent_model_input  = torch.cat([video_latents] * 2) if do_classifier_free_guidance else video_latents
+                video_latent_model_input = self.scheduler.scale_model_input(video_latent_model_input, t)
+
+                video_latent_image_input = torch.cat([image_latents] * 2) if do_classifier_free_guidance else image_latents
+                video_latent_model_input = torch.cat([video_latent_model_input, video_latent_image_input], dim=2)
+
                 #print('video_latent_model_input',video_latent_model_input.shape)
                 # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
                 timestep = t.expand(video_latent_model_input.shape[0]).to(video_device)
@@ -1050,7 +1105,7 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
 
                 video_latents = self.video_scheduler.step(video_noise_pred, t, video_latents, **extra_step_kwargs, return_dict=False)[0]
 
-                video_latents = video_latents.to(latents_dtype)
+                video_latents = video_latents.to(video_latents_dtype)
 
                 #===================video denoising======================#
 
@@ -1108,8 +1163,8 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
 
                         print(x0_imagebind_video_input.dtype, x0_imagebind_audio_input.dtype)
                         # compute loss with imagebind 
-                        if isinstance(prompt, str):
-                            prompt_bind = [prompt]
+                        if isinstance(prompt_audio, str):
+                            prompt_bind = [prompt_audio]
                         inputs = {
                             ModalityType.VISION: x0_imagebind_video_input,
                             ModalityType.AUDIO: x0_imagebind_audio_input,
@@ -1127,9 +1182,9 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
 
                         bind_loss =  bind_loss_text_vision + bind_loss_text_audio + bind_loss_vision_audio    
                         #bind_loss =  bind_loss_vision_audio                    
-                        print('bind_loss_text_vision',bind_loss_text_vision)
-                        print('bind_loss_text_audio',bind_loss_text_audio)
-                        print('bind_loss_vision_audio',bind_loss_vision_audio)           
+                        print('bind_loss_text_vision',bind_loss_text_vision,bind_loss_text_vision.requires_grad)
+                        print('bind_loss_text_audio',bind_loss_text_audio,bind_loss_text_audio.requires_grad)
+                        print('bind_loss_vision_audio',bind_loss_vision_audio,bind_loss_vision_audio.requires_grad)        
 
                         optimizer_video = torch.optim.Adam([video_latents_temp], lr=learning_rate) 
                         optimizer_audio = torch.optim.Adam([audio_latents_temp], lr=learning_rate) 
@@ -1173,8 +1228,10 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
         audio = audio.detach().numpy()
         print('output audio',audio.shape,audio.dtype)
         # decode video
-        video = self.decode_video_latents(video_latents).detach()
-        video = self.video_processor.postprocess_video(video=video, output_type=output_type)[0]
+        with torch.autograd.set_detect_anomaly(True):
+            with torch.no_grad():
+                video = self.decode_video_latents(video_latents).detach()
+                video = self.video_processor.postprocess_video(video=video, output_type=output_type)[0]
         print('output video',video.shape,video.dtype)
         # Offload all models
 
