@@ -975,7 +975,7 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
 
         bind_model = imagebind_model.imagebind_huge(pretrained=False)
 
-        state_dict = torch.load("/home/xianyang/Data/code/Seeing-and-Hearing/v2a/imagebind/.checkpoints/imagebind_huge.pth", map_location=bind_device)
+        state_dict = torch.load("imagebind/.checkpoints/imagebind_huge.pth", map_location=bind_device)
 
         bind_model.eval()
         bind_model = bind_model.to(dtype=torch.float32,device=bind_device)
@@ -1057,99 +1057,99 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
 
                 #===================joint va triangle loss optimization======================#
 
-                for optim_step in range(num_optimization_steps):
-                    with torch.autograd.set_detect_anomaly(True):
+                # for optim_step in range(num_optimization_steps):
+                #     with torch.autograd.set_detect_anomaly(True):
 
-                        video_latents_temp = video_latents.detach()
-                        video_latents_temp.requires_grad = True 
+                #         video_latents_temp = video_latents.detach()
+                #         video_latents_temp.requires_grad = True 
 
-                        audio_latents_temp = audio_latents.detach()
-                        if i > num_warmup_steps_bind:
-                            audio_latents_temp.requires_grad = True 
+                #         audio_latents_temp = audio_latents.detach()
+                #         if i > num_warmup_steps_bind:
+                #             audio_latents_temp.requires_grad = True 
 
-                        #================compute audio=================#
-                        # 1. compute x0 
-                        audio_x0 = 1/(self.scheduler.alphas_cumprod[t] ** 0.5) * (audio_latents_temp - (1-self.scheduler.alphas_cumprod[t])**0.5 * audio_noise_pred)
+                #         #================compute audio=================#
+                #         # 1. compute x0 
+                #         audio_x0 = 1/(self.scheduler.alphas_cumprod[t] ** 0.5) * (audio_latents_temp - (1-self.scheduler.alphas_cumprod[t])**0.5 * audio_noise_pred)
                     
-                        print('audio_x0',audio_x0.shape,audio_x0.dtype,audio_x0.device)
-                        # 2. decode x0 with vae decoder 
-                        x0_mel_spectrogram = self.decode_audio_latents(audio_x0)
+                #         print('audio_x0',audio_x0.shape,audio_x0.dtype,audio_x0.device)
+                #         # 2. decode x0 with vae decoder 
+                #         x0_mel_spectrogram = self.decode_audio_latents(audio_x0)
 
-                        if x0_mel_spectrogram.dim() == 4:
-                            x0_mel_spectrogram = x0_mel_spectrogram.squeeze(1)
+                #         if x0_mel_spectrogram.dim() == 4:
+                #             x0_mel_spectrogram = x0_mel_spectrogram.squeeze(1)
 
-                        # 3. convert mel-spectrogram to waveform
-                        x0_waveform = self.vocoder(x0_mel_spectrogram).clone()
-                        x0_waveform = x0_waveform.to(torch.float32)
+                #         # 3. convert mel-spectrogram to waveform
+                #         x0_waveform = self.vocoder(x0_mel_spectrogram).clone()
+                #         x0_waveform = x0_waveform.to(torch.float32)
 
-                        # 4. waveform to imagebind mel-spectrogram
-                        x0_imagebind_audio_input = load_and_transform_audio_data_from_waveform(x0_waveform, org_sample_rate=self.vocoder.config.sampling_rate, 
-                                            device=bind_device, target_length=204, clip_duration=clip_duration, clips_per_video=clips_per_video).to(torch.float32)
+                #         # 4. waveform to imagebind mel-spectrogram
+                #         x0_imagebind_audio_input = load_and_transform_audio_data_from_waveform(x0_waveform, org_sample_rate=self.vocoder.config.sampling_rate, 
+                #                             device=bind_device, target_length=204, clip_duration=clip_duration, clips_per_video=clips_per_video).to(torch.float32)
 
-                        del x0_waveform, x0_mel_spectrogram, audio_x0
-                        #================compute audio=================#
+                #         del x0_waveform, x0_mel_spectrogram, audio_x0
+                #         #================compute audio=================#
 
-                        #================compute video=================#
-                        with torch.no_grad():
-                            # 1. compute video x0 
-                            video_x0 = 1/(self.video_scheduler.alphas_cumprod[t] ** 0.5) * (video_latents_temp - (1-self.video_scheduler.alphas_cumprod[t])**0.5 * video_noise_pred) 
-                            # 2. decode video x0 with video vae decoder 
-                            #self.video_vae.disable_gradient_checkpointing()
-                            x0_video = self.decode_video_latents(video_x0).to(dtype=torch.float32, device=bind_device)
-                            # print('x0_video',x0_video.shape)
-                            x0_video = (x0_video  / 2 + 0.5).clamp(0, 1)
-                        # # 3. x0_video to frames to export 
-                        #video = self.video_processor.postprocess_video(video=video, output_type=output_type)
-                        # export_to_video(video,f'output_{t}.mp4',fps=10)
-                        # # 4. reload video to image bind video input
-                        x0_imagebind_video_input = load_and_transform_video_data_from_tensor_real(x0_video, bind_device, clip_duration=clip_duration, clips_per_video=clips_per_video, n_samples_per_clip=2).to(torch.float32)
-                        # image_bind_video_input = load_and_transform_video_data('output_{t}.mp4', device, clip_duration=clip_duration, clips_per_video=clips_per_video, n_samples_per_clip=2)
+                #         #================compute video=================#
+                #         with torch.no_grad():
+                #             # 1. compute video x0 
+                #             video_x0 = 1/(self.video_scheduler.alphas_cumprod[t] ** 0.5) * (video_latents_temp - (1-self.video_scheduler.alphas_cumprod[t])**0.5 * video_noise_pred) 
+                #             # 2. decode video x0 with video vae decoder 
+                #             #self.video_vae.disable_gradient_checkpointing()
+                #             x0_video = self.decode_video_latents(video_x0).to(dtype=torch.float32, device=bind_device)
+                #             # print('x0_video',x0_video.shape)
+                #             x0_video = (x0_video  / 2 + 0.5).clamp(0, 1)
+                #         # # 3. x0_video to frames to export 
+                #         #video = self.video_processor.postprocess_video(video=video, output_type=output_type)
+                #         # export_to_video(video,f'output_{t}.mp4',fps=10)
+                #         # # 4. reload video to image bind video input
+                #         x0_imagebind_video_input = load_and_transform_video_data_from_tensor_real(x0_video, bind_device, clip_duration=clip_duration, clips_per_video=clips_per_video, n_samples_per_clip=2).to(torch.float32)
+                #         # image_bind_video_input = load_and_transform_video_data('output_{t}.mp4', device, clip_duration=clip_duration, clips_per_video=clips_per_video, n_samples_per_clip=2)
                         
-                        #================compute video=================#
+                #         #================compute video=================#
 
-                        print(x0_imagebind_video_input.dtype, x0_imagebind_audio_input.dtype)
-                        # compute loss with imagebind 
-                        if isinstance(prompt_audio, str):
-                            prompt_bind = [prompt_audio]
-                        inputs = {
-                            ModalityType.VISION: x0_imagebind_video_input,
-                            ModalityType.AUDIO: x0_imagebind_audio_input,
-                            ModalityType.TEXT: load_and_transform_text(prompt_bind, bind_device)
-                        }
+                #         print(x0_imagebind_video_input.dtype, x0_imagebind_audio_input.dtype)
+                #         # compute loss with imagebind 
+                #         if isinstance(prompt_audio, str):
+                #             prompt_bind = [prompt_audio]
+                #         inputs = {
+                #             ModalityType.VISION: x0_imagebind_video_input,
+                #             ModalityType.AUDIO: x0_imagebind_audio_input,
+                #             ModalityType.TEXT: load_and_transform_text(prompt_bind, bind_device)
+                #         }
 
-                        # with torch.no_grad():
-                        embeddings = bind_model(inputs)
+                #         # with torch.no_grad():
+                #         embeddings = bind_model(inputs)
 
-                        bind_loss_text_vision = 1 - F.cosine_similarity(embeddings[ModalityType.TEXT], embeddings[ModalityType.VISION])     
+                #         bind_loss_text_vision = 1 - F.cosine_similarity(embeddings[ModalityType.TEXT], embeddings[ModalityType.VISION])     
 
-                        bind_loss_text_audio = 1 - F.cosine_similarity(embeddings[ModalityType.TEXT], embeddings[ModalityType.AUDIO])
+                #         bind_loss_text_audio = 1 - F.cosine_similarity(embeddings[ModalityType.TEXT], embeddings[ModalityType.AUDIO])
 
-                        bind_loss_vision_audio = 1 - F.cosine_similarity(embeddings[ModalityType.VISION], embeddings[ModalityType.AUDIO])
+                #         bind_loss_vision_audio = 1 - F.cosine_similarity(embeddings[ModalityType.VISION], embeddings[ModalityType.AUDIO])
 
-                        bind_loss =  bind_loss_text_vision + bind_loss_text_audio + bind_loss_vision_audio    
-                        #bind_loss =  bind_loss_vision_audio                    
-                        print('bind_loss_text_vision',bind_loss_text_vision)
-                        print('bind_loss_text_audio',bind_loss_text_audio)
-                        print('bind_loss_vision_audio',bind_loss_vision_audio)           
+                #         bind_loss =  bind_loss_text_vision + bind_loss_text_audio + bind_loss_vision_audio    
+                #         #bind_loss =  bind_loss_vision_audio                    
+                #         print('bind_loss_text_vision',bind_loss_text_vision)
+                #         print('bind_loss_text_audio',bind_loss_text_audio)
+                #         print('bind_loss_vision_audio',bind_loss_vision_audio)           
 
-                        optimizer_video = torch.optim.Adam([video_latents_temp], lr=learning_rate) 
-                        optimizer_audio = torch.optim.Adam([audio_latents_temp], lr=learning_rate) 
+                        # optimizer_video = torch.optim.Adam([video_latents_temp], lr=learning_rate) 
+                        # optimizer_audio = torch.optim.Adam([audio_latents_temp], lr=learning_rate) 
 
-                        bind_loss.backward() 
+                        # bind_loss.backward() 
 
-                        optimizer_video.step()
-                        optimizer_video.zero_grad()
+                        # optimizer_video.step()
+                        # optimizer_video.zero_grad()
 
-                        if i >= num_warmup_steps_bind:
+                        # if i >= num_warmup_steps_bind:
 
-                            optimizer_audio.step()
-                            optimizer_audio.zero_grad()
+                        #     optimizer_audio.step()
+                        #     optimizer_audio.zero_grad()
 
-                        print('audio_latents_temp',audio_latents_temp.dtype,audio_latents_temp.device)
-                        print('video_latents_temp',video_latents_temp.dtype,video_latents_temp.device)
+                        # print('audio_latents_temp',audio_latents_temp.dtype,audio_latents_temp.device)
+                        # print('video_latents_temp',video_latents_temp.dtype,video_latents_temp.device)
 
-                        audio_latents = audio_latents_temp.detach()
-                        video_latents = video_latents_temp.detach()
+                        # audio_latents = audio_latents_temp.detach()
+                        # video_latents = video_latents_temp.detach()
 
 
 
@@ -1159,7 +1159,7 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
                     if callback is not None and i % callback_steps == 0:
                         callback(i, t, video_latents)
 
-        del video_latents_temp,audio_latents_temp
+        # del video_latents_temp,audio_latents_temp
         # torch.cuda.set_device(1)
         torch.cuda.empty_cache()
         audio_latents.requires_grad = False

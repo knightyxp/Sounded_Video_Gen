@@ -1,5 +1,5 @@
 import os
-from pipeline_av_joint import Audio_Video_LDMPipeline
+from pipeline.pipeline_av_joint import Audio_Video_LDMPipeline
 import torch
 import soundfile as sf
 from accelerate.utils import set_seed
@@ -69,7 +69,7 @@ clips_per_video = 1
 cur_seed = 45
 optimization_starting_point = 0.2
 
-cur_out_dir = f"samples/man_shoot_rifle_wo_rhythmically_t2v"
+cur_out_dir = f"samples/man_shoot_rifle_wo_rhythmically_t2v_no_graident_optimize"
 os.makedirs(cur_out_dir, exist_ok=True)
 
 set_seed(cur_seed)

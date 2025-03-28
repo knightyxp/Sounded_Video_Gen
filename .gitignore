@@ -8,5 +8,6 @@ v2a/*.mp4
 joint_va/ckpt/
 joint_va/samples/
 joint_va/imagebind/.checkpoints/
+supplementary/
 *.zip
 *__pycache__*

@@ -84,14 +84,14 @@ pipe = Audio_Video_LDMPipeline.from_pretrained(wanx_path, vae=video_vae,
 inf_steps = 50
 lr = 0
 num_optimization_steps = 1
-audio_length = 5
+audio_length = 8
 clip_duration = 2
 clips_per_video = 1
 #vp['audio_length']
 cur_seed = 45
-optimization_starting_point = 0.2
+optimization_starting_point = 0
 
-cur_out_dir = f"samples/wanx+tangoflux/t2v_play_violin_long_prompt"
+cur_out_dir = f"samples/wanx+tangoflux/t2v_play_violin_long_prompt_optimize_gradient"
 os.makedirs(cur_out_dir, exist_ok=True)
 
 set_seed(cur_seed)
@@ -99,7 +99,9 @@ generator = torch.Generator(device='cuda')
 
 generator.manual_seed(cur_seed)
 
-# prompt = "A man is playing an accordion"
+#prompt = "A cat and a dog baking a cake together in a kitchen. The cat is carefully measuring flour, while the dog is stirring the batter with a wooden spoon. The kitchen is cozy, with sunlight streaming through the window."
+#"A white man shoots a black rifle. He wears a black cap, a green T-shirt, and beige pants."
+#"A man is playing the violin"
 prompt = "A man is playing the violin, performing a gentle classical tune with clear and melodic notes, steady rhythm, and a harmonious tone"
 ngpu=torch.cuda.device_count()
 print(f"num_gpus={ngpu}")

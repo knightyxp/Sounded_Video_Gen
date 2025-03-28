@@ -634,6 +634,15 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
         return frames
 
     def decode_audio_latents(self, audio_latents):
+        for name, param in self.vae.named_parameters():
+            if param.requires_grad:
+                print(f"{name}: requires_grad = {param.requires_grad}")
+        num_params = sum(p.numel() for p in self.vae.parameters())
+        # 假设参数为 float32，每个参数占 4 字节
+        num_bytes = num_params * 4
+        num_mb = num_bytes / (1024 ** 2)
+        print("VAE模型参数占用的内存约为: {:.2f} MB".format(num_mb))
+        exit()
         audio_latents = 1 / self.vae.config.scaling_factor * audio_latents
         ## for multi card 
         audio_latents_device = audio_latents.device

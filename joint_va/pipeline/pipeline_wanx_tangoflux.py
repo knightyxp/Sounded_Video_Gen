@@ -228,6 +228,16 @@ def retrieve_timesteps(
     return timesteps, num_inference_steps
 
 
+class PseudoDecoder(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x):
+        ctx.save_for_backward(x)
+        return x
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        x, = ctx.saved_tensors
+        return grad_output
 
 
 class Audio_Video_LDMPipeline(DiffusionPipeline):
@@ -560,59 +570,6 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
 
         return prompt_embeds, boolean_prompt_mask
 
-
-    def decode_video_latents_bind(self, video_latents):
-        # video_latents: b, c, t, h, w (1,12,16,60,90)
-
-        video_latents = video_latents.permute(0, 2, 1, 3, 4)  # [batch_size, num_channels, num_frames, height, width]
-        video_latents = 1 / self.video_vae_scaling_factor_image * video_latents
-
-        video_latents_device = video_latents.device
-
-        if video_latents_device != self.video_vae.device:
-            multi_gpu = True
-        else:
-            multi_gpu = False
-
-        if multi_gpu:
-            video_latents = video_latents.to(self.video_vae.device)
-
-        video = self.video_vae.decode(video_latents).sample
-        video = self.video_processor.postprocess_video(video=video,output_type='pt')
-
-        return video
-
-    def decode_video_latents(self, video_latents: torch.Tensor) -> torch.Tensor:
-        latents = video_latents.to(self.vae.dtype)
-        latents_mean = (
-            torch.tensor(self.vae.config.latents_mean)
-            .view(1, self.vae.config.z_dim, 1, 1, 1)
-            .to(latents.device, latents.dtype)
-        )
-        latents_std = 1.0 / torch.tensor(self.vae.config.latents_std).view(1, self.vae.config.z_dim, 1, 1, 1).to(
-            latents.device, latents.dtype
-        )
-        latents = latents / latents_std + latents_mean
-        video = self.vae.decode(latents, return_dict=False)[0]
-        return video
-
-    def decode_audio_latents(self, audio_latents, audio_duration):
-        #with torch.autograd.set_detect_anomaly(True):
-        with torch.no_grad():
-            wave = self.audio_vae.decode(audio_latents.transpose(2, 1)).sample.cpu()[0]
-        waveform_end = int(audio_duration * self.audio_vae.config.sampling_rate)
-        wave = wave[:, :waveform_end]
-        return wave
-
-    def mel_spectrogram_to_waveform(self, mel_spectrogram):
-        if mel_spectrogram.dim() == 4:
-            mel_spectrogram = mel_spectrogram.squeeze(1)
-
-        waveform = self.vocoder(mel_spectrogram)
-        # we always cast to float32 as this does not cause significant overhead and is compatible with bfloat16
-        waveform = waveform.cpu().float()
-        return waveform
-
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_extra_step_kwargs
     def prepare_extra_step_kwargs(self, generator, eta):
         # prepare extra kwargs for the scheduler step, since not all schedulers have the same signature
@@ -685,33 +642,6 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
                     f" {negative_prompt_embeds.shape}."
                 )
 
-    def _prepare_rotary_positional_embeddings(
-        self,
-        height: int,
-        width: int,
-        num_frames: int,
-        device: torch.device,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        grid_height = height // (self.video_vae_scale_factor_spatial * self.transformer.config.patch_size)
-        grid_width = width // (self.video_vae_scale_factor_spatial * self.transformer.config.patch_size)
-        base_size_width = 720 // (self.video_vae_scale_factor_spatial * self.transformer.config.patch_size)
-        base_size_height = 480 // (self.video_vae_scale_factor_spatial * self.transformer.config.patch_size)
-
-        grid_crops_coords = get_resize_crop_region_for_grid(
-            (grid_height, grid_width), base_size_width, base_size_height
-        )
-        freqs_cos, freqs_sin = get_3d_rotary_pos_embed(
-            embed_dim=self.transformer.config.attention_head_dim,
-            crops_coords=grid_crops_coords,
-            grid_size=(grid_height, grid_width),
-            temporal_size=num_frames,
-        )
-
-        freqs_cos = freqs_cos.to(device=device)
-        freqs_sin = freqs_sin.to(device=device)
-        return freqs_cos, freqs_sin
-
-
     def prepare_video_latents(
         self,
         batch_size: int,
@@ -746,6 +676,54 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
 
     def encode_duration(self, duration):
         return self.audio_duration_emebdder(duration)
+
+
+    def decode_video_latents_bind(self, video_latents):
+        # video_latents: b, c, t, h, w (1,12,16,60,90)
+
+        video_latents = video_latents.permute(0, 2, 1, 3, 4)  # [batch_size, num_channels, num_frames, height, width]
+        video_latents = 1 / self.video_vae_scaling_factor_image * video_latents
+
+        video_latents_device = video_latents.device
+
+        if video_latents_device != self.video_vae.device:
+            multi_gpu = True
+        else:
+            multi_gpu = False
+
+        if multi_gpu:
+            video_latents = video_latents.to(self.video_vae.device)
+
+        video = self.video_vae.decode(video_latents).sample
+        video = self.video_processor.postprocess_video(video=video,output_type='pt')
+
+        return video
+
+
+    def decode_video_latents(self, video_latents: torch.Tensor) -> torch.Tensor:
+
+        latents = video_latents.to(self.vae.dtype)
+        latents_mean = (
+            torch.tensor(self.vae.config.latents_mean)
+            .view(1, self.vae.config.z_dim, 1, 1, 1)
+            .to(latents.device, latents.dtype)
+        )
+        latents_std = 1.0 / torch.tensor(self.vae.config.latents_std).view(1, self.vae.config.z_dim, 1, 1, 1).to(
+            latents.device, latents.dtype
+        )
+        latents = latents / latents_std + latents_mean
+
+        video = self.vae.decode(latents, return_dict=False)[0]
+        return video
+
+    def decode_audio_latents(self, audio_latents, audio_duration):
+        for param in self.audio_vae.parameters():
+            param.requires_grad = False
+
+        wave = self.audio_vae.decode(audio_latents.transpose(2, 1)).sample[0]
+        waveform_end = int(audio_duration * self.audio_vae.config.sampling_rate)
+        wave = wave[:, :waveform_end]
+        return wave
 
     def bind_forward_triple_loss(
         self,
@@ -825,6 +803,7 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
         #set dtype
         latents_dtype = torch.float32
         video_latents_dtype = torch.bfloat16
+        
         # 2. Define call parameters
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1
@@ -944,6 +923,8 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
 
         print('attention_kwargs',attention_kwargs)
 
+        self.audio_vae.enable_slicing()
+        self.vae.eval()
         ## cpu off load
 
 
@@ -1031,13 +1012,13 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
 
                 for optim_step in range(num_optimization_steps):
                     with torch.autograd.set_detect_anomaly(True):
-
-                        video_latents_temp = video_latents.detach()
+                        video_latents_temp = video_latents
+                        #video_latents_temp = video_latents.detach()
                         video_latents_temp.requires_grad = True 
 
-                        audio_latents_temp = audio_latents.detach()
-                        if i > num_warmup_steps_bind:
-                            audio_latents_temp.requires_grad = True 
+                        audio_latents_temp = audio_latents
+                        # audio_latents_temp = audio_latents.detach()
+                        audio_latents_temp.requires_grad = True 
 
                         #================compute audio=================#
                         # 1. compute x0 
@@ -1047,8 +1028,9 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
                         audio_x0 = audio_latents_temp - sigma_audio * audio_noise_pred
                         print('audio_x0', audio_x0.shape, audio_x0.dtype, audio_x0.device)
                         # 2. decode x0 with vae decoder 
-                        x0_wave = self.decode_audio_latents(audio_x0, audio_duration)
 
+                        # x0_wave = self.decode_audio_latents(audio_x0, audio_duration)
+                        x0_wave = PseudoDecoder.apply(self.decode_audio_latents(audio_x0, audio_duration))
                         x0_waveform = x0_wave.to(torch.float32)
 
                         # 4. waveform to imagebind mel-spectrogram
@@ -1063,21 +1045,18 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
                             sigma_video = self.scheduler.sigmas[i]  # 当前视频步的 sigma
                             video_x0 = video_latents_temp - sigma_video * video_noise_pred
                             # 2. decode video x0 with video vae decoder 
-                            #self.video_vae.disable_gradient_checkpointing()
-                            x0_video = self.decode_video_latents(video_x0).to(dtype=torch.float32, device=bind_device)
-                            # print('x0_video',x0_video.shape)
+                            x0_video = PseudoDecoder.apply(self.decode_video_latents(video_x0))
+                            #x0_video = self.decode_video_latents(video_x0).to(dtype=torch.float32, device=bind_device)
                             x0_video = (x0_video  / 2 + 0.5).clamp(0, 1)
-                            
                         # # 3. x0_video to frames to export 
                         #video = self.video_processor.postprocess_video(video=video, output_type=output_type)
                         # export_to_video(video,f'output_{t}.mp4',fps=10)
                         # # 4. reload video to image bind video input
-                        x0_imagebind_video_input = load_and_transform_video_data_from_tensor_real(x0_video, bind_device, clip_duration=clip_duration, clips_per_video=clips_per_video, n_samples_per_clip=2).to(torch.float32)
-                        # image_bind_video_input = load_and_transform_video_data('output_{t}.mp4', device, clip_duration=clip_duration, clips_per_video=clips_per_video, n_samples_per_clip=2)
-                        
+                        x0_imagebind_video_input = load_and_transform_video_data_from_tensor_real(x0_video, bind_device, clip_duration=clip_duration, clips_per_video=clips_per_video, n_samples_per_clip=2).to(torch.float32) 
                         #================compute video=================#
 
                         print(x0_imagebind_video_input.dtype, x0_imagebind_audio_input.dtype)
+
                         # compute loss with imagebind 
                         if isinstance(prompt, str):
                             prompt_bind = [prompt]
@@ -1105,26 +1084,24 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
                         print('bind_loss_text_audio',bind_loss_text_audio,bind_loss_text_audio.requires_grad)
                         print('bind_loss_vision_audio',bind_loss_vision_audio,bind_loss_vision_audio.requires_grad)           
 
-                        # optimizer_video = torch.optim.Adam([video_latents_temp], lr=learning_rate) 
-                        # optimizer_audio = torch.optim.Adam([audio_latents_temp], lr=learning_rate) 
+                        optimizer_video = torch.optim.Adam([video_latents_temp], lr=learning_rate) 
+                        optimizer_audio = torch.optim.Adam([audio_latents_temp], lr=learning_rate) 
 
-                        # bind_loss.backward() 
+                        bind_loss.backward() 
 
-                        # optimizer_video.step()
-                        # optimizer_video.zero_grad()
+                        optimizer_video.step()
+                        optimizer_video.zero_grad()
 
-                        # if i >= num_warmup_steps_bind:
+                        if i >= num_warmup_steps_bind:
 
-                        #     optimizer_audio.step()
-                        #     optimizer_audio.zero_grad()
+                            optimizer_audio.step()
+                            optimizer_audio.zero_grad()
 
                         print('audio_latents_temp',audio_latents_temp.dtype,audio_latents_temp.device)
                         print('video_latents_temp',video_latents_temp.dtype,video_latents_temp.device)
 
                         audio_latents = audio_latents_temp.detach()
                         video_latents = video_latents_temp.detach()
-
-
 
                 # call the callback, if provided
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
@@ -1144,6 +1121,7 @@ class Audio_Video_LDMPipeline(DiffusionPipeline):
 
         audio = self.decode_audio_latents(audio_latents,audio_duration=audio_duration)
         print('output audio',audio.shape,audio.dtype)
+        audio = audio.detach().cpu()
         # decode video
         with torch.autograd.set_detect_anomaly(True):
             with torch.no_grad():
